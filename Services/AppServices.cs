@@ -6,6 +6,11 @@ namespace SDV.Services
 {
   public static class AppServices
   {
-    public static ProductServices Products { get; } = new();
+    public static ProductServices? Products { get; private set; }
+
+    public static void Initialize()
+    {
+      Products = new ProductServices();
+    }
   }
 }

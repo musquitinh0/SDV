@@ -7,30 +7,124 @@ namespace SDV.Services
 {
   public class ProductServices
   {
-    private readonly List<Product> _products = new()
+    private readonly Dictionary<long, Product> _byId = [];
+
+    public ProductServices()
     {
-      new Product { Id = 1, Name = "Coca-Cola 2L", Price = 9.99m },
-      new Product { Id = 2, Name = "Arroz 5kg", Price = 27.50m },
-      new Product { Id = 3, Name = "Feijão 1kg", Price = 8.30m },
-      new Product { Id = 4, Name = "Molho de Tomate Quero 250g", Price = 5.99m },
-      new Product { Id = 5, Name = "Margarina Qualy 500g", Price = 7.50m },
-      new Product { Id = 6, Name = "Macarrão aliança", Price = 3.30m }
-    };
+      LoadFromDatabase();
+    }
+
+    public Product? FindById(long id)
+    => _byId.GetValueOrDefault(id);
+
+    private void LoadFromDatabase()
+    {
+      using var conn = Database.GetConnection();
+      conn.Open();
+
+      var cmd = conn.CreateCommand();
+      cmd.CommandText =
+      """
+      SELECT Id, Name, Price
+      FROM Products
+      """;
+
+      using var reader = cmd.ExecuteReader();
+      while (reader.Read())
+      {
+        var product = new Product
+        {
+          Id = reader.GetInt32(0),
+          Name = reader.GetString(1),
+          Price = reader.GetDecimal(2)
+        };
+
+        AddToCache(product);
+      }
+    }
+
+    private void AddToCache(Product p)
+    {
+      _byId[p.Id] = p;
+    }
+
+    private void RemoveFromCache(long id)
+    {
+      if (!_byId.TryGetValue(id, out _))
+        return;
+      _byId.Remove(id);
+    }
 
     public void Add(Product product)
     {
-      product.Id = _products.Count + 1;
-      _products.Add(product);
+      using var conn = Database.GetConnection();
+      conn.Open();
+
+      var cmd = conn.CreateCommand();
+      cmd.CommandText =
+      """
+      INSERT INTO Products (Id, Nome, Price)
+      VALUES (@Id, @Name, @Price);
+      SELECT last_insert_rowid();
+      """;
+
+      cmd.Parameters.AddWithValue("@Codigo", product.Id);
+      cmd.Parameters.AddWithValue("@Name", product.Name);
+      cmd.Parameters.AddWithValue("@Price", product.Price);
+
+      product.Id = Convert.ToInt32(cmd.ExecuteScalar());
+
+      AddToCache(product);
     }
 
-    public Product? FindById(long Id)
+    public void Update(Product product)
     {
-      return _products.FirstOrDefault(p => p.Id == Id);
+      if (!_byId.ContainsKey(product.Id))
+        throw new InvalidOperationException("Produto não existe");
+
+      using var conn = Database.GetConnection();
+      conn.Open();
+
+      var cmd = conn.CreateCommand();
+      cmd.CommandText =
+      """
+      UPDATE Products
+      SET Codigo = @codigo,
+          Nome = @nome,
+          Preco = @preco
+      WHERE Id = @id
+      """;
+
+      cmd.Parameters.AddWithValue("@Id", product.Id);
+      cmd.Parameters.AddWithValue("@Name", product.Name);
+      cmd.Parameters.AddWithValue("@Price", product.Price);
+
+      cmd.ExecuteNonQuery();
+
+      // Atualizar cache
+      RemoveFromCache(product.Id);
+      AddToCache(product);
     }
 
-    public List<Product> GetAll()
+    public void Remove(int id)
     {
-      return _products;
+      if (!_byId.TryGetValue(id, out _))
+        return;
+
+      using var conn = Database.GetConnection();
+      conn.Open();
+
+      var cmd = conn.CreateCommand();
+      cmd.CommandText =
+      """
+      DELETE FROM Products
+      WHERE Id = @Id
+      """;
+
+      cmd.Parameters.AddWithValue("@Id", id);
+      cmd.ExecuteNonQuery();
+
+      RemoveFromCache(id);
     }
   }
 }
